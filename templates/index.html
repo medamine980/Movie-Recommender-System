@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recommendation des films</title>
+    <style>
+        * {
+            box-sizing: border-box;
+
+        }
+
+        ul {
+            margin: 0;
+            padding: 0;
+        }
+
+        .movie-input:focus {
+            outline: none;
+        }
+
+        .movie-input {
+            width: 100%;
+            border: none;
+            padding-inline: .2em;
+        }
+
+        .auto-complete {
+            position: relative;
+            max-width: 800px;
+            margin: auto;
+            border: 1px solid black;
+            padding-block: .25em;
+        }
+
+        .auto-complete__list:not(:empty) {
+            border-bottom: 1px solid;
+        }
+
+        .auto-complete__list {
+            position: absolute;
+            background: white;
+            left: -1px;
+            right: -1px;
+            top: calc(100% + 1px);
+            border-inline: 1px solid;
+            max-height: 250px;
+            overflow-y: auto;
+            list-style: none;
+        }
+
+        .auto-complete__list__li {
+            display: flex;
+            column-gap: .2em;
+            padding-block: 1em;
+            padding-inline: 3em;
+            align-items: center;
+            justify-content: space-between;
+            transition: .2s;
+            cursor: pointer;
+        }
+
+        .auto-complete__list__li:hover {
+            background-color: rgb(206, 206, 206);
+        }
+
+        .auto-complete__list__li:not(:last-child) {
+            border-bottom: 1px solid;
+        }
+
+        .auto-complete__list__li__poster-img,
+        .recommendations__recommendation__poster-img {
+            width: 50px;
+        }
+
+        .recommendations {
+            display: grid;
+            margin-top: 1em;
+            row-gap: .5em;
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .recommendations__recommendation {
+            display: flex;
+            column-gap: .1em;
+            align-items: center;
+        }
+
+        .chargement {
+            background-color: rgba(0, 0, 0, 0.726);
+            position: fixed;
+            z-index: 2;
+            display: grid;
+            place-items: center;
+            inset: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="auto-complete">
+        <input class="movie-input" data-movie-input type="text">
+        <ul data-autocomplete-list class="auto-complete__list"></ul>
+    </div>
+
+    <div class="recommendations" data-recommendations-list>
+
+    </div>
+    <div class="chargement" data-chargement style="display: none;">
+        <progress></progress>
+    </div>
+</body>
+
+<script type="application/javascript">
+    const elementAutocompleteList = document.querySelector("[data-autocomplete-list]");
+    const elementRecommendations = document.querySelector("[data-recommendations-list]");
+
+    let autocompleteId;
+    function etrangler(temps, callback) {
+        clearTimeout(autocompleteId);
+        autocompleteId = setTimeout(() => {
+            callback(autocompleteId);
+        }, temps);
+    }
+
+
+    const input = document.querySelector("[data-movie-input]");
+
+    (["input", "click"]).forEach(evenement => {
+        input.addEventListener(evenement, (e) => {
+            etrangler(100, autocomplete(e));
+        })
+    });
+
+    window.onclick = e => {
+        if (e.target !== input || e.target !== elementChargement) {
+            elementAutocompleteList.textContent = "";
+        }
+    }
+
+    const elementChargement = document.querySelector('[data-chargement]');
+    const activerChargement = () => {
+        elementChargement.style.display = 'grid';
+    }
+    const desactiverChargement = () => {
+        elementChargement.style.display = 'none';
+    }
+
+    function autocomplete(e) {
+        const elementInput = e.currentTarget;
+        return async (id) => {
+            const valeur = elementInput.value;
+            elementAutocompleteList.textContent = "";
+            if (valeur === "") return;
+            const liste = await fetchMovies(valeur);
+            if (id !== autocompleteId) return;
+            if (liste.length > 0) {
+                for (const json of liste) {
+                    const elementLi = document.createElement('li');
+                    const elementParagraph = document.createElement('p');
+                    const elementImg = document.createElement('img');
+                    elementParagraph.textContent = json['title'];
+                    elementImg.src = json['image'];
+                    elementImg.classList.add("auto-complete__list__li__poster-img");
+                    elementLi.classList.add("auto-complete__list__li");
+                    elementLi.append(elementParagraph, elementImg);
+                    elementAutocompleteList.appendChild(elementLi);
+                    elementLi.onclick = async e => {
+                        elementInput.value = json["title"];
+                        activerChargement();
+                        const filmId = json["movieId"]
+                        const recommendations = await fetchRecommendations(filmId);
+                        elementRecommendations.textContent = "";
+                        if (recommendations.length > 0) {
+                            const fragment = new DocumentFragment();
+                            for (const recommendation of recommendations) {
+                                const elementRecommendation = document.createElement("div");
+                                const elementParagraph = document.createElement("p");
+                                const elementImg = document.createElement("img");
+                                elementParagraph.textContent = recommendation['title'];
+                                elementImg.classList.add('recommendations__recommendation__poster-img')
+                                elementImg.src = recommendation['image'];
+                                elementRecommendation.classList.add('recommendations__recommendation');
+                                elementRecommendation.append(elementImg, elementParagraph);
+                                fragment.append(elementRecommendation);
+                            }
+                            elementRecommendations.append(fragment);
+                        } else {
+                            elementRecommendations.textContent = `Il n'y a aucune recommendation pour ${json['title']}`;
+                        }
+                        elementAutocompleteList.textContent = "";
+                        desactiverChargement();
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     *@param value {string}
+    */
+    async function fetchMovies(valeur) {
+        const reponse = await fetch(`/api/autocomplete?recherche=${valeur}`);
+        const liste = await reponse.json();
+        return liste;
+    }
+
+    async function fetchRecommendations(filmId) {
+        const reponse = await fetch(`/api/recommendations?film_id=${filmId}`);
+        const liste = await reponse.json();
+        return liste;
+    }
+</script>
+
+</html>
